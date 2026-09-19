@@ -1,0 +1,10 @@
+# Test overlay: the worker loads tests/fake_agent.py and gets no model key.
+# The test runner also sets API_PORT so a test run never collides with a live demo.
+services:
+  worker:
+    environment:
+      AGENT_MODULE: fake_agent
+      FAKE_AGENT_SECONDS: "6"
+      ANTHROPIC_API_KEY: ""
+    volumes:
+      - ../../tests/fake_agent.py:/app/fake_agent.py:ro

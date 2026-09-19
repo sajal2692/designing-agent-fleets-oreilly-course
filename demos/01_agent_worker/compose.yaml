@@ -1,0 +1,60 @@
+# Demo 1: one API, one worker, a database for run records, and a queue.
+# Start everything except the worker with:  docker compose up -d --build api
+# Then start the worker with:                docker compose up -d worker
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fleet
+      POSTGRES_PASSWORD: fleet
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fleet"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  # Accepts runs and serves their status. It never runs an agent and holds no model key.
+  api:
+    build: .
+    image: agent-fleet-demo1      # the API and the worker share one image
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${API_PORT:-8000}:8000"   # the tests pick another host port
+    environment: &fleet
+      DATABASE_URL: postgresql://postgres:fleet@postgres:5432/fleet
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - artifacts:/artifacts
+      - ./data:/data:ro
+    depends_on: &stores
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # Takes runs from the queue and executes the agent inside this container.
+  worker:
+    build: .
+    image: agent-fleet-demo1
+    hostname: worker-1            # the worker uses its hostname as its ID
+    command: python -u worker.py
+    env_file: ../../.env          # ANTHROPIC_API_KEY, only the worker gets it
+    environment:
+      <<: *fleet
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    cpus: 2
+    mem_limit: 2g
+    volumes:
+      - artifacts:/artifacts
+      - ./data:/data:ro
+    depends_on: *stores
+
+volumes:
+  artifacts:    # saved reports, kept apart from the run records in Postgres

@@ -1,0 +1,28 @@
+[project]
+name = "designing-agent-fleets-course"
+version = "0.1.0"
+description = "Demos for the Designing Agent Fleets live course on O'Reilly"
+readme = "README.md"
+requires-python = ">=3.12"
+# The demos run in containers built from each demo's requirements.txt.
+# This environment is for the offline tests, which import the demo code directly.
+dependencies = [
+    "asyncpg==0.31.0",
+    "claude-agent-sdk==0.2.156",
+    "fastapi==0.141.1",
+    "pandas==3.0.6",
+    "redis==8.1.0",
+    "uvicorn==0.53.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["demos/01_agent_worker"]
