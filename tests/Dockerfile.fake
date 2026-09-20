@@ -1,0 +1,4 @@
+# Test image for Demo 2: the fleet image plus the fake agent. The controller is pointed at
+# it through WORKER_IMAGE, so the teaching Dockerfile carries no test code.
+FROM agent-fleet-demo2
+COPY fake_agent.py /app/fake_agent.py

@@ -1,0 +1,7 @@
+# Test overlay for Demo 2: workers load the fake agent and get no model key.
+services:
+  controller:
+    environment:
+      AGENT_MODULE: fake_agent
+      FAKE_AGENT_SECONDS: "${FAKE_AGENT_SECONDS:-6}"
+      ANTHROPIC_API_KEY: ""

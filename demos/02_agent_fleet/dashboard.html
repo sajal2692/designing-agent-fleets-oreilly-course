@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Fleet</title>
+<style>
+  :root {
+    --page: #F6F7F9; --surface: #FFFFFF; --border: #E4E7EC; --border-strong: #D0D5DD;
+    --text: #101828; --text-2: #475467; --text-3: #667085; --hover: #F9FAFB;
+    --blue: #2563EB; --blue-bg: #EFF4FF; --green: #079455; --green-bg: #ECFDF3;
+    --amber: #B54708; --amber-bg: #FFFAEB; --red: #D92D20; --red-bg: #FEF3F2; --grey: #CBD2DC;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--page); color: var(--text); font: 14px/1.45 var(--sans);
+         font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; }
+  button { font: inherit; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .muted { color: var(--text-3); }
+
+  /* Application bar */
+  .bar { background: var(--surface); border-bottom: 1px solid var(--border); }
+  .bar > div { max-width: 1480px; margin: 0 auto; padding: 0 28px; height: 60px; display: flex; align-items: center; gap: 14px; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: var(--text); display: grid; place-items: center; }
+  .bar h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+  .crumb { color: var(--text-3); }
+  .chip { font-family: var(--mono); font-size: 12px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--hover); color: var(--text-2); }
+  .live { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
+  .live i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--green-bg); }
+  .live.down i { background: var(--red); box-shadow: 0 0 0 3px var(--red-bg); }
+
+  main { max-width: 1480px; margin: 0 auto; padding: 24px 28px 48px; display: grid; gap: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+  .card > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px 0; }
+  .card h2 { margin: 0; font-size: 15px; font-weight: 600; }
+  .card .body { padding: 14px 20px 18px; }
+  .sub { font-size: 13px; color: var(--text-3); }
+
+  /* Metric tiles. Three of them carry the control for the value they show. */
+  .tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 1180px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .tile { padding: 16px 18px; }
+  .tile .label { font-size: 13px; font-weight: 500; color: var(--text-2); display: flex; justify-content: space-between; align-items: center; min-height: 28px; }
+  .tile .value { margin-top: 6px; font-size: 30px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+  .tile .value small { font-size: 15px; font-weight: 500; color: var(--text-3); letter-spacing: 0; }
+  .tile .foot { margin-top: 8px; font-size: 12.5px; line-height: 1.4; color: var(--text-3); min-height: 35px; }
+  .tile .foot.warn { color: var(--amber); font-weight: 500; }
+  .track { height: 6px; border-radius: 3px; background: #EEF0F3; overflow: hidden; margin-top: 10px; }
+  .track div { height: 100%; width: 0; border-radius: 3px; background: var(--blue); transition: width .6s ease; }
+  .track.full div { background: #DC6803; }
+  .stepper { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 8px; overflow: hidden; box-shadow: var(--shadow); }
+  .stepper button { width: 28px; height: 26px; border: 0; background: var(--surface); color: var(--text-2); font-size: 16px; line-height: 1; }
+  .stepper button + button { border-left: 1px solid var(--border-strong); }
+  .stepper button:hover { background: var(--hover); color: var(--text); }
+
+  /* Runs: every submitted run is one cell, in order. Beside it, throughput over time. */
+  .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 20px; }
+  @media (max-width: 1180px) { .split { grid-template-columns: 1fr; } }
+  #strip { display: flex; flex-wrap: wrap; gap: 3px; min-height: 26px; }
+  .cell { width: 12px; height: 26px; border-radius: 2.5px; background: var(--grey); transition: background-color .35s; position: relative; }
+  .cell.running { background: var(--blue); animation: working 1.3s ease-in-out infinite; }
+  .cell.accepted { background: #17B26A; }
+  .cell.failed { background: var(--red); }
+  .cell.retried::after { content: ""; position: absolute; inset: 3px 2.5px auto; height: 3px; border-radius: 2px; background: #fff; }
+  @keyframes working { 50% { opacity: .5; } }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: 13px; color: var(--text-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; }
+  .legend b { color: var(--text); font-weight: 600; }
+  .empty { color: var(--text-3); font-size: 13.5px; margin: 0; padding: 6px 0 2px; }
+  .progress-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+  .progress-head b { font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+  #progress { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #EEF0F3; margin-bottom: 16px; }
+  #progress div { height: 100%; transition: width .6s ease; }
+  .two-line small { display: block; margin-top: 1px; font: 12px var(--sans); color: var(--text-3); }
+  #chart { width: 100%; height: 84px; display: block; margin-top: 6px; }
+  #chart rect { fill: #B2CCFF; }
+  #chart rect.now { fill: var(--blue); }
+  .chart-value { font-size: 24px; font-weight: 600; letter-spacing: -.02em; }
+
+  .stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; align-content: start; min-width: 0; }
+
+  /* Workers table */
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; font-weight: 500; color: var(--text-3); padding: 10px 10px; background: var(--hover);
+       border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 11px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+  th:first-child, td:first-child { padding-left: 20px; }
+  th:last-child, td:last-child { padding-right: 20px; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tr.alert td { background: #FFFBFA; }
+  .worker-name { font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 2px 8px 2px 7px; border-radius: 99px;
+           border: 1px solid var(--border); background: var(--hover); color: var(--text-2); }
+  .badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .badge.ready { color: var(--green); background: var(--green-bg); border-color: #ABEFC6; }
+  .badge.running, .badge.draining { color: var(--blue); background: var(--blue-bg); border-color: #B2CCFF; }
+  .badge.waiting { color: var(--amber); background: var(--amber-bg); border-color: #FEDF89; }
+  .badge.lost, .badge.paused, .badge.gone { color: var(--red); background: var(--red-bg); border-color: #FECDCA; }
+  .lease { display: flex; align-items: center; gap: 8px; min-width: 130px; }
+  .lease .track { flex: 1; margin: 0; }
+  .lease .track div { background: #17B26A; transition: width 1s linear, background-color .3s; }
+  .lease span { width: 30px; text-align: right; font-size: 12.5px; color: var(--text-3); }
+  .actions { display: flex; gap: 4px; justify-content: flex-end; }
+  .actions button { padding: 4px 10px; font-size: 12.5px; font-weight: 500; border-radius: 6px; border: 1px solid var(--border-strong); background: #fff; color: var(--text-2); box-shadow: var(--shadow); cursor: pointer; }
+  .actions button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+  .actions button.kill { color: var(--red); border-color: #FECDCA; }
+  .actions button.kill:hover:not(:disabled) { background: var(--red-bg); color: var(--red); }
+  .actions button:disabled { color: var(--grey); border-color: var(--border); box-shadow: none; cursor: default; }
+  td.status-accepted { color: var(--green); font-weight: 500; }
+  td.status-failed { color: var(--red); font-weight: 500; }
+  td.status-running { color: var(--blue); font-weight: 500; }
+  td.again { color: var(--amber); font-weight: 600; }
+
+  /* Controller activity */
+  #events { list-style: none; margin: 0; padding: 4px 20px 10px; }
+  #events li { display: grid; grid-template-columns: 8px 1fr auto; gap: 10px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  #events li:last-child { border-bottom: 0; }
+  #events i { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--grey); }
+  #events li.good i { background: #17B26A; } #events li.bad i { background: var(--red); } #events li.warn i { background: #F79009; }
+  #events time { font-family: var(--mono); font-size: 12px; color: var(--text-3); padding-top: 1px; }
+  #events .run { display: inline-block; margin-top: 2px; color: var(--text-3); }
+
+  @media (prefers-reduced-motion: reduce) { .cell.running { animation: none; } .track div, .cell { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="bar"><div>
+  <span class="mark" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+    <circle cx="8" cy="3.2" r="2" fill="#fff"/><circle cx="3.2" cy="12" r="2" fill="#fff"/><circle cx="12.8" cy="12" r="2" fill="#fff"/>
+    <path d="M8 5.2v3.3M8 8.5l-3.6 2.2M8 8.5l3.6 2.2" stroke="#fff" stroke-width="1.2"/></svg></span>
+  <h1>Agent Fleet</h1><span class="crumb">/</span><span class="chip" id="project">fleet</span>
+  <span class="live" id="live"><i></i><span id="live-text">Connecting</span></span>
+</div></div>
+
+<main>
+  <section class="tiles" aria-label="Fleet metrics">
+    <div class="card tile"><div class="label">Workers
+        <span class="stepper" role="group" aria-label="Workers wanted"><button data-key="desired_workers" data-step="-1" aria-label="One fewer worker">&minus;</button><button data-key="desired_workers" data-step="1" aria-label="One more worker">+</button></span></div>
+      <div class="value"><span id="serving">0</span> <small>of <span id="desired_workers">0</span> wanted</small></div>
+      <div class="foot" id="workers-foot"></div></div>
+    <div class="card tile"><div class="label">Runs in progress
+        <span class="stepper" role="group" aria-label="Fleet limit"><button data-key="max_active_runs" data-step="-1" aria-label="Lower the fleet limit">&minus;</button><button data-key="max_active_runs" data-step="1" aria-label="Raise the fleet limit">+</button></span></div>
+      <div class="value"><span id="running">0</span> <small>of <span id="max_active_runs">0</span> allowed</small></div>
+      <div class="track" id="limit-track"><div></div></div><div class="foot" id="limit-foot"></div></div>
+    <div class="card tile"><div class="label">Queue</div>
+      <div class="value" id="queue">0</div><div class="foot">runs not yet handed to a worker</div></div>
+    <div class="card tile"><div class="label">Attempts</div>
+      <div class="value"><span id="attempts">0</span> <small>for <span id="run-count">0</span> runs</small></div>
+      <div class="foot" id="attempts-foot"></div></div>
+    <div class="card tile"><div class="label">Spend
+        <span class="stepper" role="group" aria-label="Spend limit"><button data-key="max_fleet_spend_usd" data-step="-1" aria-label="Lower the spend limit">&minus;</button><button data-key="max_fleet_spend_usd" data-step="1" aria-label="Raise the spend limit">+</button></span></div>
+      <div class="value"><span id="spend">$0.00</span> <small>of $<span id="max_fleet_spend_usd">0</span></small></div>
+      <div class="track" id="spend-track"><div></div></div><div class="foot" id="spend-foot"></div></div>
+  </section>
+
+  <section class="split">
+    <div class="card"><header><h2>Runs</h2><div class="legend" id="legend"></div></header>
+      <div class="body">
+        <div class="progress-head"><span><b id="done-count">0</b> <span class="sub">of <span id="total-count">0</span> runs finished</span></span><span class="sub" id="done-percent"></span></div>
+        <div id="progress" role="img" aria-label="Share of runs accepted, failed, running, and waiting"><div></div><div></div><div></div></div>
+        <div id="strip"></div>
+        <p class="empty" id="no-runs">No runs yet. Submit a batch with <span class="mono">python3 submit.py --count 50</span></p>
+        <p class="sub" style="margin:10px 0 0">One cell per run, in the order submitted. A white mark means the run needed a second attempt.</p></div></div>
+    <div class="card"><header><h2>Throughput</h2><span class="sub">accepted per minute, last 5 min</span></header>
+      <div class="body"><div class="chart-value"><span id="rate">0</span> <span class="sub">runs in the last minute</span></div>
+        <svg id="chart" viewBox="0 0 300 92" preserveAspectRatio="none" role="img" aria-label="Accepted runs per minute over the last five minutes"></svg></div></div>
+  </section>
+
+  <section class="split">
+    <div class="stack">
+      <div class="card"><header><h2>Workers</h2><span class="sub">started and stopped by the controller</span></header>
+        <div style="padding-top:14px; overflow-x:auto"><table>
+          <thead><tr><th>Worker</th><th>Status</th><th>Current run</th><th>Elapsed</th><th>Lease</th><th>Runs done</th><th></th></tr></thead>
+          <tbody id="workers"></tbody></table>
+          <p class="empty" id="no-workers" style="padding:14px 20px 18px">No workers yet. Raise Workers above zero and the controller starts them.</p></div></div>
+      <div class="card"><header><h2>Latest runs</h2><span class="sub">most recently updated</span></header>
+        <div style="padding-top:14px; overflow-x:auto"><table>
+          <thead><tr><th>Run</th><th>Account</th><th>Status</th><th>Attempt</th><th>Worker</th><th>Turns</th><th>Time</th><th>Cost</th></tr></thead>
+          <tbody id="runs"></tbody></table></div></div>
+    </div>
+    <div class="card" style="align-self:start"><header><h2>Controller activity</h2><span class="sub">decisions, newest first</span></header>
+      <ul id="events"></ul><p class="empty" id="no-events" style="padding:0 20px 18px">Nothing yet.</p></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const LEASE_SECONDS = 20;
+const rows = new Map(), cells = new Map();
+let fleet = null;
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function post(path, body) {
+  return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})}).then(refresh);
+}
+
+document.querySelectorAll(".stepper button").forEach((button) => button.addEventListener("click", () => {
+  if (fleet) post(`/settings/${button.dataset.key}`, {value: fleet.settings[button.dataset.key] + Number(button.dataset.step)});
+}));
+
+// What a person should read for a worker, from what the worker and Docker report.
+function workerState(w) {
+  if (w.container === "paused") return ["paused", "Paused"];
+  if (w.status === "gone") return w.attempt ? ["lost", "Lost contact"] : ["gone", "Gone"];
+  if (w.drain) return ["draining", "Draining"];
+  return {busy: ["running", "Running"], waiting: ["waiting", "Waiting"], ready: ["ready", "Ready"]}[w.status] || ["ready", w.status];
+}
+
+function renderWorkers(spendReached) {
+  const seen = new Set();
+  for (const w of fleet.workers) {
+    seen.add(w.id);
+    let row = rows.get(w.id);
+    if (!row) {
+      row = el("tr");
+      row.innerHTML = '<td class="worker-name"></td><td><span class="badge"></span></td><td class="two-line"><span class="mono"></span><small></small></td><td></td>' +
+        '<td><div class="lease"><div class="track"><div></div></div><span></span></div></td><td></td><td><div class="actions"></div></td>';
+      for (const [action, label] of [["drain", "Drain"], ["pause", "Pause"], ["kill", "Kill"]]) {
+        const button = el("button", action, label);
+        button.dataset.action = action;
+        button.addEventListener("click", () => post(`/workers/${w.id}/${button.dataset.action}`));
+        row.querySelector(".actions").append(button);
+      }
+      rows.set(w.id, row);
+      $("workers").append(row);
+    }
+    const [state, label] = workerState(w);
+    const cell = row.children;
+    row.className = ["lost", "paused", "gone"].includes(state) ? "alert" : "";
+    cell[0].textContent = w.id;
+    cell[1].firstChild.className = `badge ${state}`;
+    cell[1].firstChild.textContent = label;
+    cell[2].firstChild.textContent = w.run_id || "No run in hand";
+    cell[2].firstChild.className = w.run_id ? "mono" : "muted";
+    cell[2].lastChild.textContent = w.attempt ? `${w.account_id}, attempt ${w.attempt}`
+      : w.status === "waiting" ? (spendReached ? "Held: the spend limit is reached" : "Held: the fleet limit is reached") : "";
+    cell[3].textContent = w.attempt ? `${Math.round(w.busy_seconds)}s` : "";
+    const left = w.attempt ? Math.max(0, w.lease_seconds) : 0;
+    const bar = row.querySelector(".lease .track div");
+    bar.style.width = `${Math.min(100, left / LEASE_SECONDS * 100)}%`;
+    bar.style.backgroundColor = left > 14 ? "#17B26A" : left > 7 ? "#F79009" : "#D92D20";  // below 15s a renewal was missed
+    row.querySelector(".lease span").textContent = w.attempt ? `${Math.round(left)}s` : "";
+    row.querySelector(".lease").setAttribute("aria-label", w.attempt ? `Lease, ${Math.round(left)} seconds left` : "No lease");
+    cell[5].textContent = w.runs_done;
+    const pause = row.querySelector(".actions .pause");
+    pause.textContent = w.container === "paused" ? "Resume" : "Pause";
+    pause.dataset.action = w.container === "paused" ? "resume" : "pause";
+    // A worker that is gone can only be resumed, and only if it was paused.
+    for (const button of row.querySelectorAll(".actions button"))
+      button.disabled = w.status === "gone" && !(button === pause && w.container === "paused");
+  }
+  for (const [id, row] of rows) if (!seen.has(id)) { row.remove(); rows.delete(id); }
+  $("no-workers").hidden = fleet.workers.length > 0;
+}
+
+function renderRuns() {
+  if (fleet.runs.length < cells.size) { cells.clear(); $("strip").textContent = ""; }  // the database was reset
+  const counts = {queued: 0, running: 0, accepted: 0, failed: 0};
+  let retried = 0;
+  for (const run of fleet.runs) {
+    counts[run.status]++;
+    if (run.attempt > 1) retried++;
+    let cell = cells.get(run.id);
+    if (!cell) { cell = el("div", "cell"); cells.set(run.id, cell); $("strip").append(cell); }
+    cell.className = `cell ${run.status}${run.attempt > 1 ? " retried" : ""}`;
+    cell.title = `${run.id} ${run.account_id}: ${run.status}${run.attempt ? ", attempt " + run.attempt : ""}`;
+  }
+  $("no-runs").hidden = fleet.runs.length > 0;
+  const legend = $("legend");
+  legend.textContent = "";
+  for (const [label, count, color] of [["waiting", counts.queued, "var(--grey)"], ["running", counts.running, "var(--blue)"],
+       ["accepted", counts.accepted, "#17B26A"], ["failed", counts.failed, "var(--red)"]]) {
+    const item = el("span"), swatch = el("i");
+    swatch.style.background = color;
+    item.append(swatch, el("b", "", count), label);
+    legend.append(item);
+  }
+  const again = el("span");
+  again.append(el("b", "", retried), "second attempts");
+  legend.append(again);
+  const total = fleet.runs.length, finished = counts.accepted + counts.failed;
+  $("done-count").textContent = finished;
+  $("total-count").textContent = total;
+  $("done-percent").textContent = total ? `${Math.round(finished / total * 100)}% complete` : "";
+  const segments = $("progress").children;
+  [[counts.accepted, "#17B26A"], [counts.failed, "var(--red)"], [counts.running, "var(--blue)"]].forEach(([count, color], index) => {
+    segments[index].style.width = total ? `${count / total * 100}%` : "0";
+    segments[index].style.background = color;
+  });
+
+  const body = $("runs");
+  body.textContent = "";
+  for (const run of [...fleet.runs].sort((a, b) => b.updated - a.updated).slice(0, 8)) {
+    const row = el("tr");
+    row.append(el("td", "mono", run.id), el("td", "mono", run.account_id), el("td", `status-${run.status}`, run.status),
+               el("td", run.attempt > 1 ? "again" : "", run.attempt || ""), el("td", "", run.worker_id || ""), el("td", "", run.turns || ""),
+               el("td", "", run.seconds ? `${Math.round(run.seconds)}s` : ""), el("td", "", run.cost_usd ? `$${run.cost_usd.toFixed(3)}` : ""));
+    body.append(row);
+  }
+  return counts;
+}
+
+// Accepted runs per minute, in ten-second buckets over the last five minutes. It is computed
+// from the runs themselves, so it survives a page reload.
+function renderChart() {
+  const now = Date.now() / 1000, buckets = new Array(30).fill(0);
+  for (const run of fleet.runs) {
+    const age = now - run.updated;
+    if (run.status === "accepted" && age >= 0 && age < 300) buckets[29 - Math.floor(age / 10)]++;
+  }
+  const peak = Math.max(4, ...buckets);
+  $("chart").innerHTML = buckets.map((count, index) => {
+    const height = Math.max(count ? 3 : 1, count / peak * 84);
+    return `<rect class="${index === 29 ? "now" : ""}" x="${index * 10 + 1.5}" y="${92 - height}" width="7" height="${height}" rx="1.5"><title>${count * 6} a minute</title></rect>`;
+  }).join("");
+}
+
+function meter(id, used, limit) {
+  const track = $(id), full = limit > 0 && used >= limit;
+  track.classList.toggle("full", full);
+  track.firstChild.style.width = `${Math.min(100, limit ? used / limit * 100 : 100)}%`;
+  return full;
+}
+
+function render() {
+  const {settings, totals, queue, workers} = fleet;
+  const spendReached = totals.cost_usd >= settings.max_fleet_spend_usd;
+  $("project").textContent = fleet.project;
+  for (const key of ["desired_workers", "max_active_runs", "max_fleet_spend_usd"]) $(key).textContent = settings[key];
+  const serving = workers.filter((w) => w.status !== "gone" && !w.drain);
+  $("serving").textContent = serving.length;
+  const waiting = serving.filter((w) => w.status === "waiting").length, busy = serving.filter((w) => w.status === "busy").length;
+  $("workers-foot").textContent = `${busy} running, ${waiting} waiting, ${serving.length - busy - waiting} ready`;
+  renderWorkers(spendReached);
+  const counts = renderRuns();
+  renderChart();
+  $("running").textContent = counts.running;
+  const atLimit = meter("limit-track", counts.running, settings.max_active_runs);
+  $("limit-foot").textContent = atLimit ? "At the fleet limit. More workers will not raise it." : "Fleet-wide limit, shared by every worker";
+  $("limit-foot").className = atLimit ? "foot warn" : "foot";
+  $("queue").textContent = queue.waiting;
+  $("attempts").textContent = totals.attempts;
+  $("run-count").textContent = fleet.runs.length;
+  $("attempts-foot").textContent = `${totals.lost_attempts} lost to workers that disappeared`;
+  $("spend").textContent = `$${totals.cost_usd.toFixed(2)}`;
+  meter("spend-track", totals.cost_usd, settings.max_fleet_spend_usd);
+  $("spend-foot").textContent = spendReached ? "Spend limit reached. No run can be claimed."
+    : counts.accepted ? `$${(totals.cost_usd / counts.accepted).toFixed(3)} per accepted run` : "No accepted runs yet";
+  $("spend-foot").className = spendReached ? "foot warn" : "foot";
+  $("rate").textContent = totals.accepted_last_minute;
+
+  const list = $("events");
+  list.textContent = "";
+  for (const event of fleet.events) {
+    const tone = /started/.test(event.type) ? "good" : /gone|lost|failed|refused|kill/.test(event.type) ? "bad" : /drain|pause|requeued/.test(event.type) ? "warn" : "";
+    const item = el("li", tone), text = el("div");
+    text.append(event.summary || event.type);
+    if (event.run_id) text.append(el("br"), el("span", "mono run", event.run_id));
+    item.append(el("i"), text, el("time", "", event.at));
+    list.append(item);
+  }
+  $("no-events").hidden = fleet.events.length > 0;
+}
+
+async function refresh() {
+  try {
+    fleet = await (await fetch("/fleet")).json();
+    render();
+    $("live").className = "live";
+    $("live-text").textContent = "Live";
+  } catch (problem) {
+    $("live").className = "live down";
+    $("live-text").textContent = "Cannot reach the fleet";
+  }
+}
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

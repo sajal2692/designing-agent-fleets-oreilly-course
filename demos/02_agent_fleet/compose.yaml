@@ -1,0 +1,77 @@
+# Demo 2: an API, a dashboard, a controller, a database for run records, and a queue.
+# The workers are not listed here. The controller starts and stops them.
+#   docker compose up -d --build     then open http://localhost:8080
+
+name: ${FLEET_PROJECT:-agent-fleet}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: fleet
+      POSTGRES_PASSWORD: fleet
+    command: postgres -c max_connections=300     # every worker keeps a small pool open
+    volumes:
+      - ./schema.sql:/docker-entrypoint-initdb.d/schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d fleet"]
+      interval: 2s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  # Accepts runs and serves their status. It never runs an agent and holds no model key.
+  api:
+    build: .
+    image: agent-fleet-demo2       # every service, and every worker, shares this image
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment: &fleet
+      DATABASE_URL: postgresql://postgres:fleet@postgres:5432/fleet
+      REDIS_URL: redis://redis:6379
+      FLEET_PROJECT: ${FLEET_PROJECT:-agent-fleet}
+    volumes:
+      - artifacts:/artifacts
+    depends_on: &stores
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # Shows the fleet and takes the operator's changes. It reads and writes Postgres only.
+  dashboard:
+    image: agent-fleet-demo2
+    command: uvicorn dashboard:app --host 0.0.0.0 --port 8080
+    ports:
+      - "${DASHBOARD_PORT:-8080}:8080"
+    environment: *fleet
+    depends_on: *stores
+
+  # The control loop. The only service with the Docker socket, and the one that passes
+  # the model key to the workers it starts.
+  controller:
+    image: agent-fleet-demo2
+    command: python -u controller.py
+    user: root                    # the Docker socket belongs to root inside the container
+    env_file: ../../.env          # ANTHROPIC_API_KEY
+    environment:
+      <<: *fleet
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      WORKER_IMAGE: ${WORKER_IMAGE:-agent-fleet-demo2}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      <<: *stores
+      api: {condition: service_started}   # the API builds the shared image
+
+networks:
+  default:
+    name: ${FLEET_PROJECT:-agent-fleet}_net
+
+volumes:
+  artifacts:                      # saved reports, kept apart from the run records in Postgres
+    name: ${FLEET_PROJECT:-agent-fleet}_artifacts
