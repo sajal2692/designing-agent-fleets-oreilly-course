@@ -118,8 +118,9 @@ if args.live:
     check("the agent runs as a child process inside the worker's container", "claude" in top)
 compose("restart", "api")
 wait_for("the API after its restart", lambda: api("/runs") is not None, 60)
-final = wait_for("the run to finish", lambda: (r := api(run["status_url"]))["status"] in ("accepted", "failed") and r, 240)
-check("a run in progress survives an API restart and is accepted", final["status"] == "accepted",
+final = wait_for("the run to finish", lambda: (r := api(run["status_url"]))["status"] in ("finished", "failed") and r, 240)
+check("a run in progress survives an API restart and finishes with a passing check",
+      final["status"] == "finished" and (final.get("check_result") or {}).get("passed") is True,
       json.dumps(final.get("check_result") or final["attempts"][-1].get("error"))[:200])
 check("the report is served from the artifacts volume", final["report"] == final["check_result"]["expected"])
 attempt = final["attempts"][0]
@@ -127,17 +128,17 @@ check("usage and cost are recorded on the attempt",
       attempt["turns"] is not None and attempt["cost_usd"] is not None and attempt["status"] == "finished")
 kinds = sql(f"SELECT string_agg(DISTINCT type, ',') FROM events WHERE run_id = '{run['run_id']}'").split(",")
 check("events cover submission, claim, agent steps, and the decision",
-      {"submitted", "claimed", "tool_call", "agent_finished", "accepted"} <= set(kinds))
+      {"submitted", "claimed", "tool_call", "agent_finished", "finished"} <= set(kinds))
 
 # Submit a batch for the single worker.
 batch = [api("/runs", {"account_id": f"acct-{n:03d}"}) for n in range(2, args.count + 2)]
 check(f"{args.count} more submissions all return at once", len(batch) == args.count)
 wait_for("the batch to finish",
-         lambda: all(r["status"] in ("accepted", "failed") for r in api("/runs")), 240 * args.count)
+         lambda: all(r["status"] in ("finished", "failed") for r in api("/runs")), 240 * args.count)
 stop.set()
 runs = api("/runs")
-check("every run is accepted", all(r["status"] == "accepted" for r in runs),
-      str([(r["id"], r["status"]) for r in runs if r["status"] != "accepted"]))
+check("every run finishes with a passing check", all(r["status"] == "finished" and r["check_passed"] for r in runs),
+      str([(r["id"], r["status"]) for r in runs if not (r["status"] == "finished" and r["check_passed"])]))
 check("one worker executed every run", len({r["worker_id"] for r in runs}) == 1)
 overlaps = sql("SELECT count(*) FROM attempts a JOIN attempts b ON a.run_id < b.run_id "
                "AND a.started_at < b.finished_at AND b.started_at < a.finished_at")
@@ -145,15 +146,15 @@ check("the worker ran them one at a time", overlaps == "0")
 leftovers = compose("exec", "-T", "worker", "sh", "-c", "ls -A /work | wc -l", capture=True).strip()
 check("no working directories remain", leftovers == "0")
 saved = compose("exec", "-T", "worker", "sh", "-c", "ls /artifacts/*/attempt-1/report.json | wc -l", capture=True).strip()
-check("every accepted run has a saved report", int(saved) == len(runs))
+check("every finished run has a saved report", int(saved) == len(runs))
 
 # An idle worker must keep waiting on the queue and still take the next run.
 time.sleep(12)
 services = compose("ps", "--services", "--status", "running", capture=True).split()
 check("the worker is still running after sitting idle", "worker" in services)
 late = api("/runs", {"account_id": "acct-040"})
-wait_for("the late run", lambda: api(late["status_url"])["status"] in ("accepted", "failed"), 240)
-check("the idle worker takes a run submitted later", api(late["status_url"])["status"] == "accepted")
+wait_for("the late run", lambda: api(late["status_url"])["status"] in ("finished", "failed"), 240)
+check("the idle worker takes a run submitted later", api(late["status_url"])["status"] == "finished")
 runs = api("/runs")
 
 seconds = float(sql("SELECT avg(extract(epoch FROM finished_at - started_at)) FROM attempts"))

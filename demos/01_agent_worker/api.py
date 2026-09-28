@@ -71,7 +71,7 @@ async def read_run(run_id: str):
     if run["check_result"]:
         result["check_result"] = json.loads(run["check_result"])
     # Run records live in Postgres. The report itself lives on the artifacts volume.
-    if run["status"] == "accepted":
+    if run["report_path"]:
         result["report"] = json.loads(Path(run["report_path"], "report.json").read_text())
     return result
 
@@ -79,8 +79,8 @@ async def read_run(run_id: str):
 @app.get("/runs")
 async def list_runs():
     rows = await app.state.db.fetch("""
-        SELECT r.id, r.account_id, r.status, r.created_at,
-               a.worker_id, a.turns, a.cost_usd, a.started_at, a.finished_at
+        SELECT r.id, r.account_id, r.status, (r.check_result->>'passed')::boolean AS check_passed,
+               r.created_at, a.worker_id, a.turns, a.cost_usd, a.started_at, a.finished_at
         FROM runs r LEFT JOIN attempts a ON a.run_id = r.id
         ORDER BY r.created_at
     """)

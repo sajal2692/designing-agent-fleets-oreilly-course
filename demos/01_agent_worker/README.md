@@ -7,8 +7,8 @@ at a time.
 
 The task is small on purpose. Each run gets one customer's `usage.csv`, 90 rows of daily
 usage for three products. The agent writes `report.json` with four figures and a short
-`summary.md`. The worker recomputes the four figures from the same CSV and accepts the run
-only if they match.
+`summary.md`. The worker recomputes the four figures from the same CSV and records whether
+they match.
 
 ```text
 submit.py ──> api ──> postgres   run records: runs, attempts, events
@@ -82,7 +82,7 @@ docker compose logs -f worker
 [worker-1] run-25690114  tool_call      Bash: python3 << 'EOF'
 [worker-1] run-25690114  tool_call      Write: /work/run-25690114-attempt-1/summary.md
 [worker-1] run-25690114  agent_finished success, 8 turns, 58,897 tokens in, $0.026
-[worker-1] run-25690114  accepted       every figure matches the input
+[worker-1] run-25690114  finished       check passed, every figure matches the input
 ```
 
 While a run is in progress, list the processes inside the worker's container:
@@ -141,7 +141,7 @@ run's events in order:
  00:11:42 |       1 | tool_call      | Bash: python3 << 'EOF'
  00:11:45 |       1 | tool_call      | Write: /work/run-941cd76f-attempt-1/summary.md
  00:11:50 |       1 | agent_finished | success, 6 turns, 35,374 tokens in, $0.021
- 00:11:50 |       1 | accepted       | every figure matches the input
+ 00:11:50 |       1 | finished       | check passed, every figure matches the input
 ```
 
 That is a real run with the agent's text lines and two file reads left out for space.
@@ -157,11 +157,11 @@ Ten run IDs come back in well under a second. The watch pane shows one run `runn
 and the rest `queued`. The same worker takes them one after another.
 
 ```text
-queued 6   running 1   accepted 4   failed 0   cost $0.080
+queued 6   running 1   finished 4   failed 0   cost $0.080
 
-run           account   status    worker    turns  time   cost
-run-25690114  acct-001  accepted  worker-1  8      18s    $0.026
-run-aa8f7575  acct-002  accepted  worker-1  7      13s    $0.016
+run           account   status    check   worker        turns  time   cost
+run-25690114  acct-001  finished  passed  worker-1      8      18s    $0.026
+run-aa8f7575  acct-002  finished  passed  worker-1      7      13s    $0.016
 ```
 
 **8. Do the arithmetic.** In our validation run a run took about 16 seconds, so one
@@ -202,7 +202,7 @@ the agent while a deadline runs alongside it.
 - **Records and outputs live in different places.** Postgres holds status, usage, cost,
   the check decision, and the path to the report. The report files sit on the artifacts
   volume, the way run records and saved outputs map to a database and object storage.
-- **Completion is checked.** The run is `accepted` only when the recomputed figures equal
+- **Completion is checked.** A finished run records whether the recomputed figures equal
   the reported ones. Both sets are stored as evidence.
 - **One worker, many runs.** The worker finishes a run, returns to the queue, and takes
   the next. Each run gets a fresh working directory, deleted afterwards.

@@ -17,6 +17,10 @@ def seconds_between(start, end):
     return f"{(finish - datetime.fromisoformat(start)).total_seconds():.0f}s"
 
 
+def check_label(passed):
+    return "" if passed is None else "passed" if passed else "failed"
+
+
 while True:
     try:
         with urllib.request.urlopen(f"{API_URL}/runs") as response:
@@ -24,14 +28,14 @@ while True:
         counts = Counter(run["status"] for run in runs)
         cost = sum(run["cost_usd"] or 0 for run in runs)
         lines = [
-            f"queued {counts['queued']}   running {counts['running'] + counts['checking']}   "
-            f"accepted {counts['accepted']}   failed {counts['failed']}   cost ${cost:.3f}",
+            f"queued {counts['queued']}   running {counts['running']}   "
+            f"finished {counts['finished']}   failed {counts['failed']}   cost ${cost:.3f}",
             "",
-            f"{'run':<14}{'account':<10}{'status':<10}{'worker':<14}{'turns':<7}{'time':<7}cost",
+            f"{'run':<14}{'account':<10}{'status':<10}{'check':<8}{'worker':<14}{'turns':<7}{'time':<7}cost",
         ]
         for run in runs:
             lines.append(
-                f"{run['id']:<14}{run['account_id']:<10}{run['status']:<10}"
+                f"{run['id']:<14}{run['account_id']:<10}{run['status']:<10}{check_label(run['check_passed']):<8}"
                 f"{run['worker_id'] or '':<14}{run['turns'] or '':<7}"
                 f"{seconds_between(run['started_at'], run['finished_at']):<7}"
                 f"{'$%.3f' % run['cost_usd'] if run['cost_usd'] else ''}"

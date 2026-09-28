@@ -4,9 +4,9 @@
 CREATE TABLE runs (
     id           TEXT PRIMARY KEY,
     account_id   TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'queued',  -- queued, running, checking, accepted, failed
+    status       TEXT NOT NULL DEFAULT 'queued',  -- queued, running, finished, failed
     report_path  TEXT,                            -- where the saved report lives
-    check_result JSONB,                           -- the decision and its evidence
+    check_result JSONB,                           -- whether the report passed the check, and the evidence
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );

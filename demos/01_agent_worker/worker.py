@@ -82,7 +82,6 @@ async def execute_run(db, run_id):
             raise RuntimeError(f"agent stopped early: {finished.get('summary', 'no result')}")
 
         # 6. Save the outputs outside the working directory, which is about to be deleted.
-        await db.execute("UPDATE runs SET status = 'checking' WHERE id = $1", run_id)
         saved.mkdir(parents=True)
         for name in task["outputs"]:
             shutil.copy(workdir / name, saved / name)
@@ -95,21 +94,22 @@ async def execute_run(db, run_id):
         shutil.rmtree(workdir, ignore_errors=True)
 
     # 8. Record the outcome of the attempt and of the run.
-    accepted = error is None and check["passed"]
+    status = "failed" if error else "finished"
     await db.execute(
         "UPDATE attempts SET status = $3, turns = $4, input_tokens = $5, output_tokens = $6, "
         "cost_usd = $7, error = $8, finished_at = now() WHERE run_id = $1 AND number = $2",
-        run_id, attempt, "failed" if error else "finished", finished.get("turns"),
+        run_id, attempt, status, finished.get("turns"),
         finished.get("input_tokens"), finished.get("output_tokens"), finished.get("cost_usd"), error,
     )
     await db.execute(
         "UPDATE runs SET status = $2, report_path = $3, check_result = $4, updated_at = now() "
         "WHERE id = $1",
-        run_id, "accepted" if accepted else "failed", str(saved) if check else None,
+        run_id, status, str(saved) if check else None,
         json.dumps(check) if check else None,
     )
-    summary = "every figure matches the input" if accepted else error or "the report does not match the input"
-    await record(db, run_id, attempt, {"type": "accepted" if accepted else "failed", "summary": summary})
+    summary = error or ("check passed, every figure matches the input" if check["passed"]
+                        else "check failed, the report does not match the input")
+    await record(db, run_id, attempt, {"type": status, "summary": summary})
 
 
 async def main():
